@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -175,6 +176,23 @@
             text-transform: uppercase;
         }
 
+        .delete-btn {
+            margin-top: 10px;
+            background-color: #EF4444;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            width: 100%;
+            transition: background-color 0.2s;
+        }
+        
+        .delete-btn:hover {
+            background-color: #DC2626;
+        }
+
         .empty-state {
             grid-column: 1 / -1;
             text-align: center;
@@ -214,14 +232,12 @@
         <!-- Area Galeri -->
         <section>
             <div class="gallery-header">
-                <h2>Galeri Tersimpan</h2>
+                <h2>Galeri Tersimpan <span style="font-size: 0.8rem; color: #6B7280; font-weight: normal;">(Tersimpan di Browser LocalStorage)</span></h2>
                 <span id="fileCount" style="color: var(--primary); font-weight: bold;">0 File</span>
             </div>
             
             <div class="gallery-grid" id="galleryGrid">
-                <div class="empty-state" id="emptyState">
-                    Belum ada media yang diunggah. Silakan unggah file pertama Anda.
-                </div>
+                <!-- Konten akan diisi otomatis oleh JavaScript -->
             </div>
         </section>
     </main>
@@ -229,55 +245,100 @@
     <script>
         const mediaUpload = document.getElementById('mediaUpload');
         const galleryGrid = document.getElementById('galleryGrid');
-        const emptyState = document.getElementById('emptyState');
         const fileCountDisplay = document.getElementById('fileCount');
         
-        let totalFiles = 0;
+        // 1. Mengambil data yang sudah tersimpan di localStorage saat halaman dimuat
+        let savedMedia = JSON.parse(localStorage.getItem('cloudbox_media')) || [];
 
+        // 2. Fungsi untuk menampilkan galeri ke layar
+        function renderGallery() {
+            galleryGrid.innerHTML = ''; // Bersihkan layar terlebih dahulu
+            fileCountDisplay.innerText = `${savedMedia.length} File`;
+
+            if (savedMedia.length === 0) {
+                galleryGrid.innerHTML = `
+                    <div class="empty-state" id="emptyState">
+                        Belum ada media yang diunggah. Silakan unggah file pertama Anda.
+                    </div>`;
+                return;
+            }
+
+            // Tampilkan dari data yang paling baru (di-reverse)
+            [...savedMedia].reverse().forEach(media => {
+                const card = document.createElement('div');
+                card.className = 'media-card';
+
+                let mediaElement = '';
+                if (media.type.startsWith('image/')) {
+                    mediaElement = `<img src="${media.data}" alt="${media.name}">`;
+                } else if (media.type.startsWith('video/')) {
+                    mediaElement = `<video src="${media.data}" controls></video>`;
+                }
+
+                card.innerHTML = `
+                    ${mediaElement}
+                    <div class="media-info">
+                        <div class="media-title">${media.name}</div>
+                        <div class="media-type">${media.type.split('/')[0]}</div>
+                        <button class="delete-btn" onclick="deleteMedia('${media.id}')">Hapus</button>
+                    </div>
+                `;
+                galleryGrid.appendChild(card);
+            });
+        }
+
+        // 3. Fungsi untuk menghapus media
+        window.deleteMedia = function(id) {
+            savedMedia = savedMedia.filter(media => media.id !== id); // Buang data yang dihapus
+            localStorage.setItem('cloudbox_media', JSON.stringify(savedMedia)); // Simpan ulang ke browser
+            renderGallery(); // Perbarui tampilan
+        };
+
+        // 4. Ketika ada file yang diunggah
         mediaUpload.addEventListener('change', function(event) {
             const files = event.target.files;
             
             if (files.length > 0) {
-                // Sembunyikan tulisan "Belum ada media"
-                if (emptyState) {
-                    emptyState.style.display = 'none';
-                }
-
-                // Proses setiap file yang diunggah
                 Array.from(files).forEach(file => {
-                    totalFiles++;
-                    fileCountDisplay.innerText = `${totalFiles} File`;
-
-                    // Membuat URL sementara dari file yang diunggah di browser
-                    const fileURL = URL.createObjectURL(file);
+                    // Gunakan FileReader untuk mengubah file fisik menjadi teks (Base64) agar bisa disimpan di LocalStorage
+                    const reader = new FileReader();
                     
-                    // Membuat elemen kartu (card)
-                    const card = document.createElement('div');
-                    card.className = 'media-card';
-
-                    // Cek apakah file adalah gambar atau video
-                    let mediaElement = '';
-                    if (file.type.startsWith('image/')) {
-                        mediaElement = `<img src="${fileURL}" alt="${file.name}">`;
-                    } else if (file.type.startsWith('video/')) {
-                        mediaElement = `<video src="${fileURL}" controls></video>`;
-                    }
-
-                    // Isi HTML ke dalam kartu
-                    card.innerHTML = `
-                        ${mediaElement}
-                        <div class="media-info">
-                            <div class="media-title">${file.name}</div>
-                            <div class="media-type">${file.type.split('/')[0]}</div>
-                        </div>
-                    `;
-
-                    // Tambahkan kartu ke dalam galeri (di urutan paling depan)
-                    galleryGrid.prepend(card);
+                    reader.onload = function(e) {
+                        const base64Data = e.target.result;
+                        
+                        const newMedia = {
+                            id: Date.now().toString() + Math.random().toString(36).substr(2, 9), // Buat ID unik
+                            name: file.name,
+                            type: file.type,
+                            data: base64Data
+                        };
+                        
+                        try {
+                            savedMedia.push(newMedia);
+                            localStorage.setItem('cloudbox_media', JSON.stringify(savedMedia)); // Simpan ke browser
+                            renderGallery(); // Perbarui tampilan
+                        } catch (error) {
+                            // LocalStorage browser memiliki batas memori maksimal (sekitar ~5MB)
+                            alert('Penyimpanan memori browser penuh!\n\n(Ini adalah batasan dari LocalStorage. Untuk menyimpan file berukuran besar seperti video, kita memerlukan Database Server di Cloud Hosting).');
+                            savedMedia.pop(); // Batalkan penambahan ke memori
+                        }
+                    };
+                    
+                    reader.readAsDataURL(file); // Mulai proses konversi file
                 });
+                
+                // Reset kolom input setelah selesai
+                mediaUpload.value = '';
             }
         });
+
+        // 5. Tampilkan galeri saat website pertama kali dibuka
+        renderGallery();
     </script>
 
 </body>
 </html>
+
+
+```
+
